@@ -1,7 +1,6 @@
 """
 SYNOPSIS
 
-    TODO - update the name of the script in the line below
     pullLakeLevels.py <path to config> <path to log file folder>
 
 DESCRIPTION
@@ -40,6 +39,10 @@ import urllib
 import json
 from datetime import datetime
 from datetime import date
+import requests as req
+from requests.auth import HTTPBasicAuth
+from requests.compat import urljoin
+
 
 exit_status = 0
 
@@ -200,8 +203,8 @@ def main():
     #parser.add_argument("-p", "--publish", help="Publish data as hosted feature service", default=False, action="store_true")
     
     args = parser.parse_args()
-    log_folder = args.logfolder
     config_path = args.configpath
+    log_folder = args.logfolder
 
     # make a few variables to use
     script_name_no_ext = os.path.splitext(os.path.basename(sys.argv[0]))[0]
@@ -228,7 +231,37 @@ def main():
         the_config.read(config_path)
         
         # # # # Put your code below here # # # # #
+        # Get credentials
+        user = the_config['REST']['user']
+        pw = base64.b64decode(the_config['REST']['pw']).decode('utf-8')
 
+        # Endpoint
+        base = the_config['REST']['url']
+
+        # Pump stations list
+        pump_stations = ['BDD1','BDD2','ITDD1','ITDD2','ITDD3']
+
+        # Lake level list
+        lake_levels = ['BONBL','HIBIS','ISLWST','MEAD','PEACMN','RACQCL','SAVAN','WHILLS']
+
+        # Get station and lake levels
+        for station in pump_stations:
+            path = r'?query=SELECT%20Timestamp,%20%27Pump%20Stations' + '\\' + station + r'\Level:Value%27FROM%20History%20Order%20BY%20TIMESTAMP%20DESC%20LIMIT%201'
+            full_url = urljoin(base, path)
+            r = req.get(full_url, auth = HTTPBasicAuth(user, pw))
+            data = r.json()
+            station = data['results']['fieldNames'][1].split('\\')[1]
+            station_level = data['results']['values'][0][1]
+            #print(fr"Station " + station + " level: " + str(station_level))
+            
+        for level in lake_levels:
+            path = r'?query=SELECT%20Timestamp,%20%27Lake%20Levels' + '\\' + level + r'\Level:Value%27FROM%20History%20Order%20BY%20TIMESTAMP%20DESC%20LIMIT%201'
+            full_url = urljoin(base, path)
+            r = req.get(full_url, auth = HTTPBasicAuth(user, pw))
+            data = r.json()
+            lake = data['results']['fieldNames'][1].split('\\')[1]
+            lake_level = data['results']['values'][0][1]
+            #print(fr"Lake " + lake + " level: " + str(lake_level))
         
         # # # # End your code above here # # # #
             
