@@ -44,8 +44,6 @@ from requests.auth import HTTPBasicAuth
 from requests.compat import urljoin
 
 
-exit_status = 0
-
 # import arcpy
 # below is code to try to catch arcpy import errors
 try:
@@ -187,24 +185,94 @@ def create_GIS(portal_url: str, user: str, password: str, logger: str) -> GIS:
 
     return gis
 
+# Get lake level and pump station values
+def get_values(user: str, pw: str, base: str) -> Dict:
     
+    # Pump stations list
+    pump_stations = ['BDD1','BDD2','ITDD1','ITDD2','ITDD3'] # Related table foreign key configured like 'PS-ITDD1'
+
+    # Lake level list NEED TO CONFIRM THESE LOCATIONS AS VTSCADA AND WESTON HAVE DIFFERING NOMENCLATURE
+    lake_levels = {'BONBL':'LS-004','HIBIS':'LS-28A','MEAD':'LS-024','PEACMN':'LS-011','RACQCL':'LS-008','SAVAN':'LS-043','WHILLS':'LS-049'}
+    # 'ISLWST' missing from Weston's GIS data set
+
+    # Define empty dictionaries to return level info
+    stations_dict = {}
+    lake_levels_dict = {}
+    
+    # Get station and lake levels
+    for station in pump_stations:
+
+        # Build query parameters
+        path = r'?query=SELECT%20Timestamp,%20%27Pump%20Stations' + '\\' + station + r'\Level:Value%27FROM%20History%20Order%20BY%20TIMESTAMP%20DESC%20LIMIT%201'
+
+        # Build full 
+        full_url = urljoin(base, path)
+        r = req.get(full_url, auth = HTTPBasicAuth(user, pw))
+        data = r.json()
+        station = data['results']['fieldNames'][1].split('\\')[1]
+        station_level = data['results']['values'][0][1]
+        #print(fr"Station " + station + " level: " + str(station_level))
+        stations_dict[station] = station_level
+        
+    for level in lake_levels.items():
+        path = r'?query=SELECT%20Timestamp,%20%27Lake%20Levels' + '\\' + level[0] + r'\Level:Value%27FROM%20History%20Order%20BY%20TIMESTAMP%20DESC%20LIMIT%201'
+        full_url = urljoin(base, path)
+        r = req.get(full_url, auth = HTTPBasicAuth(user, pw))
+        data = r.json()
+        lake = data['results']['fieldNames'][1].split('\\')[1]
+        lake_level = data['results']['values'][0][1]
+        #print(fr"Lake " + lake + " level: " + str(lake_level))
+        lake_levels_dict[level[0]] = lake_level
+    
+    return [stations_dict, lake_levels_dict]
+
+# Update the GIS related tables
+def update_gis(data: Dict) -> str:
+    arcpy.env.workspace = r"\\WGISAGS2\D$\GISInc_Working\LakeLevels\WestonPublisher@WGISSQL1.sde"
+    workspace = arcpy.env.workspace
+    
+    # Update station table
+    #station_table = 'PumpStationPump'
+    #station_fields = ['PARENTID','']
+    #with arcpy.da.UpdateCursor(station_table, ) as stationCursor:
+    #    for station in data[0]:
+    #        print(fr"Station: {station}")
+
+    # Update Lake Levels table
+    lake_level_table = 'LGIM_PROD.DBO.LakeLevels'
+    lake_level_fields = ['PARENTID','Current_Pool']
+    with arcpy.da.Editor(workspace) as edit:
+        try:
+            with arcpy.da.UpdateCursor(lake_level_table, lake_level_fields) as levelCursor:
+                for level in levelCursor:
+                    for lake in data[1]:
+                        print(fr"Lake: {lake}")
+                        print(fr"Data: {data[1]}")
+                        if lake == level[0]:
+                            level[1] = lake[1]
+                            print(fr"Lake level: {level[1]}")
+        except arcpy.ExecuteError:
+            arcpy.AddMessage(arcpy.GetMessages(2))
+
+
 def main():
     """
     Main execution code
     """
+    exit_status = 0
     
     # parse command line arguments - edit these descriptions and help
-    parser = argparse.ArgumentParser(description="TODO - Provide a brief description of what the script does")
-    parser.add_argument("configpath", help="The full path to the configuration file to use", 
-                        type=lambda x: is_valid_path(parser, x))
-    parser.add_argument("logfolder", help="The full path to the folder where logfiles will be stored",  
-                        type=lambda x: is_valid_path(parser, x))
+    #parser = argparse.ArgumentParser(description="TODO - Provide a brief description of what the script does")
+    #parser.add_argument("configpath", help="The full path to the configuration file to use", 
+                        #type=lambda x: is_valid_path(parser, x))
+    #parser.add_argument("logfolder", help="The full path to the folder where logfiles will be stored",  
+                        #type=lambda x: is_valid_path(parser, x))
     # example argument for optional flag
     #parser.add_argument("-p", "--publish", help="Publish data as hosted feature service", default=False, action="store_true")
     
-    args = parser.parse_args()
-    config_path = args.configpath
-    log_folder = args.logfolder
+    #args = parser.parse_args()
+    config_path = r"D:\GISInc_Working\LakeLevels\config.ini" #args.configpath
+    log_folder = r"D:\GISInc_Working\LakeLevels" #args.logfolder
 
     # make a few variables to use
     script_name_no_ext = os.path.splitext(os.path.basename(sys.argv[0]))[0]
@@ -238,31 +306,17 @@ def main():
         # Endpoint
         base = the_config['REST']['url']
 
-        # Pump stations list
-        pump_stations = ['BDD1','BDD2','ITDD1','ITDD2','ITDD3']
+        # Get the values
+        values_dicts = get_values(user,pw,base)
+        station_levels = values_dicts[0]
+        lake_levels = values_dicts[1]
 
-        # Lake level list
-        lake_levels = ['BONBL','HIBIS','ISLWST','MEAD','PEACMN','RACQCL','SAVAN','WHILLS']
+        # Update the GIS
+        update_gis(values_dicts)
 
-        # Get station and lake levels
-        for station in pump_stations:
-            path = r'?query=SELECT%20Timestamp,%20%27Pump%20Stations' + '\\' + station + r'\Level:Value%27FROM%20History%20Order%20BY%20TIMESTAMP%20DESC%20LIMIT%201'
-            full_url = urljoin(base, path)
-            r = req.get(full_url, auth = HTTPBasicAuth(user, pw))
-            data = r.json()
-            station = data['results']['fieldNames'][1].split('\\')[1]
-            station_level = data['results']['values'][0][1]
-            #print(fr"Station " + station + " level: " + str(station_level))
-            
-        for level in lake_levels:
-            path = r'?query=SELECT%20Timestamp,%20%27Lake%20Levels' + '\\' + level + r'\Level:Value%27FROM%20History%20Order%20BY%20TIMESTAMP%20DESC%20LIMIT%201'
-            full_url = urljoin(base, path)
-            r = req.get(full_url, auth = HTTPBasicAuth(user, pw))
-            data = r.json()
-            lake = data['results']['fieldNames'][1].split('\\')[1]
-            lake_level = data['results']['values'][0][1]
-            #print(fr"Lake " + lake + " level: " + str(lake_level))
-        
+        #print(fr"{station_levels}")
+        #print(fr"{lake_levels}")
+       
         # # # # End your code above here # # # #
             
     except ValueError as e:
@@ -291,7 +345,7 @@ def main():
             logging.shutdown()
         except NameError:
             pass
-        if exit_status == "SUCCESS":
+        if exit_status == 0:
             sys.exit(0)
         else:
             print(str(exit_status))
