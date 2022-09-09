@@ -205,8 +205,10 @@ def get_values(user: str, pw: str, base: str) -> Dict:
         # Build query parameters
         path = r'?query=SELECT%20Timestamp,%20%27Pump%20Stations' + '\\' + station + r'\Level:Value%27FROM%20History%20Order%20BY%20TIMESTAMP%20DESC%20LIMIT%201'
 
-        # Build full 
+        # Build full URL
         full_url = urljoin(base, path)
+
+        # Make the request
         r = req.get(full_url, auth = HTTPBasicAuth(user, pw))
         data = r.json()
         station = data['results']['fieldNames'][1].split('\\')[1]
@@ -215,22 +217,29 @@ def get_values(user: str, pw: str, base: str) -> Dict:
         stations_dict[station] = station_level
         
     for level in lake_levels.items():
+
+        # Build query parameters
         path = r'?query=SELECT%20Timestamp,%20%27Lake%20Levels' + '\\' + level[0] + r'\Level:Value%27FROM%20History%20Order%20BY%20TIMESTAMP%20DESC%20LIMIT%201'
+
+        # Build full URL
         full_url = urljoin(base, path)
+
+        # Make the request
         r = req.get(full_url, auth = HTTPBasicAuth(user, pw))
         data = r.json()
         lake = data['results']['fieldNames'][1].split('\\')[1]
         lake_level = data['results']['values'][0][1]
         #print(fr"Lake " + lake + " level: " + str(lake_level))
-        lake_levels_dict[level[0]] = lake_level
-    
+        lake_levels_dict[level[0]] = (lake_levels[level[0]],lake_level)
+    #print(fr"{lake_levels_dict}")
+
     return [stations_dict, lake_levels_dict]
 
 # Update the GIS related tables
 def update_gis(data: Dict) -> str:
-    arcpy.env.workspace = r"\\WGISAGS2\D$\GISInc_Working\LakeLevels\WestonPublisher@WGISSQL1.sde"
+    arcpy.env.workspace = r"\\WGISAGS2\D$\GISInc_Working\LakeLevels\sa@WGISSQL1.sde"
     workspace = arcpy.env.workspace
-    
+    #print(fr"Data[1] - {data[1]}")
     # Update station table
     #station_table = 'PumpStationPump'
     #station_fields = ['PARENTID','']
@@ -241,19 +250,45 @@ def update_gis(data: Dict) -> str:
     # Update Lake Levels table
     lake_level_table = 'LGIM_PROD.DBO.LakeLevels'
     lake_level_fields = ['PARENTID','Current_Pool']
-    with arcpy.da.Editor(workspace) as edit:
-        try:
-            with arcpy.da.UpdateCursor(lake_level_table, lake_level_fields) as levelCursor:
-                for level in levelCursor:
-                    for lake in data[1]:
-                        print(fr"Lake: {lake}")
-                        print(fr"Data: {data[1]}")
-                        if lake == level[0]:
-                            level[1] = lake[1]
-                            print(fr"Lake level: {level[1]}")
-        except arcpy.ExecuteError:
-            arcpy.AddMessage(arcpy.GetMessages(2))
 
+    try:
+
+        # Start edit session
+        edit = arcpy.da.Editor(workspace)
+        edit.startEditing(False, True)
+        edit.startOperation()
+        with arcpy.da.UpdateCursor(lake_level_table, lake_level_fields) as levelCursor:
+            for level in levelCursor:
+
+                # Iterate data[1] dictionary
+                for lake in data[1]:
+
+                    # Set the 'LS' number from VTScada REST dictionary
+                    ls_num = data[1][lake][0]
+
+                    # Set pool level from VTScada REST dictionary
+                    pool_level = data[1][lake][1]
+
+                    # Check PARENTID (level[0] from Weston's SDE table) against VTScada's dictionary
+                    if level[0] == ls_num:
+
+                        # Set Current_Pool attribute
+                        level[1] = round(pool_level,2)
+                        print(fr"Lake station - {ls_num}")
+                        print(fr"Lake level - {pool_level}")
+
+                        # Change to dfault version
+                        #arcpy.ChangeVersion_management(lake_level_table,'TRANSACTIONAL','dbo.DEFAULT')
+                            
+                        # Update Weston's SDE table
+                        print(fr"Updating {level}...")
+                        curReturn = levelCursor.updateRow(level)
+                        print(fr"{curReturn}")
+                        
+        edit.stopOperation()
+        edit.stopEditing(True)
+    except arcpy.ExecuteError:
+        arcpy.AddMessage(arcpy.GetMessages(2))
 
 def main():
     """
