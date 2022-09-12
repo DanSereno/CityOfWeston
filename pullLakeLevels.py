@@ -229,15 +229,18 @@ def get_values(user: str, pw: str, base: str) -> Dict:
         data = r.json()
         lake = data['results']['fieldNames'][1].split('\\')[1]
         lake_level = data['results']['values'][0][1]
-        #print(fr"Lake " + lake + " level: " + str(lake_level))
-        lake_levels_dict[level[0]] = (lake_levels[level[0]],lake_level)
-    #print(fr"{lake_levels_dict}")
 
-    return [stations_dict, lake_levels_dict]
+        # Get sample datetime
+        sample_datetime = data['results']['values'][0][0]
+        
+        # Populate lake levels dictionary
+        lake_levels_dict[level[0]] = (lake_levels[level[0]],lake_level)
+
+    return [stations_dict, lake_levels_dict, sample_datetime]
 
 # Update the GIS related tables
-def update_gis(data: Dict) -> str:
-    arcpy.env.workspace = r"\\WGISAGS2\D$\GISInc_Working\LakeLevels\sa@WGISSQL1.sde"
+def update_gis(data: Dict, sample_datetime: date):
+    arcpy.env.workspace = r"\\WGISAGS2\D$\GISInc_Working\LakeLevels\gisinc@WGISSQL1.sde"
     workspace = arcpy.env.workspace
     #print(fr"Data[1] - {data[1]}")
     # Update station table
@@ -249,7 +252,7 @@ def update_gis(data: Dict) -> str:
 
     # Update Lake Levels table
     lake_level_table = 'LGIM_PROD.DBO.LakeLevels'
-    lake_level_fields = ['PARENTID','Current_Pool']
+    lake_level_fields = ['PARENTID','Current_Pool','Full_Pool','Pct_Full','Sample_Date']
 
     try:
 
@@ -274,11 +277,12 @@ def update_gis(data: Dict) -> str:
 
                         # Set Current_Pool attribute
                         level[1] = round(pool_level,2)
-                        print(fr"Lake station - {ls_num}")
-                        print(fr"Lake level - {pool_level}")
 
-                        # Change to dfault version
-                        #arcpy.ChangeVersion_management(lake_level_table,'TRANSACTIONAL','dbo.DEFAULT')
+                        # Calculate percent full
+                        level[3] = round((pool_level / level[2]) * 100,2)
+
+                        # Get sample dat
+                        level[4] = datetime.fromtimestamp(int(sample_datetime)).strftime('%m-%d-%Y %H:%M:%S')
                             
                         # Update Weston's SDE table
                         print(fr"Updating {level}...")
@@ -345,9 +349,10 @@ def main():
         values_dicts = get_values(user,pw,base)
         station_levels = values_dicts[0]
         lake_levels = values_dicts[1]
+        sample_datetime = values_dicts[2]
 
         # Update the GIS
-        update_gis(values_dicts)
+        update_gis(values_dicts,sample_datetime)
 
         #print(fr"{station_levels}")
         #print(fr"{lake_levels}")
