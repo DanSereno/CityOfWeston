@@ -243,7 +243,7 @@ def update_gis(data: Dict):
 
     # Update Lake Levels gauge table
     lake_level_table = 'LGIM_PROD.DBO.swLakeLevelGauge'
-    lake_level_fields = ['NAME','LAKELEVEL'] # Add sample data field to list when added to fc,'Sample_Date'
+    lake_level_fields = ['NAME','LAKELEVEL','CONDITIONDATE']
 
     try:
 
@@ -269,8 +269,8 @@ def update_gis(data: Dict):
                         # Calculate percent full
                         #level[3] = round((pool_level / level[2]) * 100,2)
 
-                        # Get sample dat
-                        #level[4] = datetime.fromtimestamp(int(reading[0])).strftime('%m-%d-%Y %H:%M:%S')
+                        # Get sample date
+                        level[2] = datetime.fromtimestamp(int(readings[1])).strftime('%m-%d-%Y %H:%M:%S')
                             
                         # Update Weston's SDE table
                         print(fr"Updating {level}...")
