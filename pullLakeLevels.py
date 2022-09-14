@@ -212,7 +212,7 @@ def get_values(user: str, pw: str, base: str) -> Dict:
     for location in locations:
 
         # Encode the location
-        location_encoded = urllib.parse.urlencode(location)
+        location_encoded = urllib.parse.quote(location)
 
         # Build query parameters
         path = r'?query=SELECT%20Timestamp,' + location_encoded + r'FROM%20History%20Order%20BY%20TIMESTAMP%20DESC%20LIMIT%201'
@@ -233,7 +233,7 @@ def get_values(user: str, pw: str, base: str) -> Dict:
         # Populate dictionary
         levels_dict[station] = [station_level, sample_datetime]
         
-    return [levels_dict]
+    return levels_dict
 
 # Update the GIS related tables
 def update_gis(data: Dict):
@@ -242,7 +242,7 @@ def update_gis(data: Dict):
     #print(fr"Data[1] - {data[1]}")
 
     # Update Lake Levels gauge table
-    lake_level_table = 'LGIM_PROD.DBO.swLakeLevelsGauge'
+    lake_level_table = 'LGIM_PROD.DBO.swLakeLevelGauge'
     lake_level_fields = ['NAME','LAKELEVEL'] # Add sample data field to list when added to fc,'Sample_Date'
 
     try:
@@ -258,7 +258,7 @@ def update_gis(data: Dict):
                 for node, readings in data.items():
 
                      # Check PARENTID (level[0] from Weston's SDE table) against VTScada's dictionary
-                    if level[0] == node:
+                    if level[0].lower() == node.lower():
 
                         # Set pool level from VTScada REST dictionary
                         pool_level = readings[0]
@@ -334,10 +334,10 @@ def main():
         base = the_config['REST']['url']
 
         # Get the values
-        values_dicts = get_values(user,pw,base)
+        values_dict = get_values(user,pw,base)
 
         # Update the GIS
-        update_gis(values_dicts)
+        update_gis(values_dict)
 
         # # # # End your code above here # # # #
             
