@@ -188,23 +188,34 @@ def create_GIS(portal_url: str, user: str, password: str, logger: str) -> GIS:
 # Get lake level and pump station values
 def get_values(user: str, pw: str, base: str) -> Dict:
     
-    # Pump stations list
-    pump_stations = ['BDD1','BDD2','ITDD1','ITDD2','ITDD3'] # Related table foreign key configured like 'PS-ITDD1'
-
-    # Lake level list NEED TO CONFIRM THESE LOCATIONS AS VTSCADA AND WESTON HAVE DIFFERING NOMENCLATURE
-    #lake_levels = {'BONBL':'LS-004','HIBIS':'LS-28A','MEAD':'LS-024','PEACMN':'LS-011','RACQCL':'LS-008','SAVAN':'LS-043','WHILLS':'LS-049'}
-    lake_levels = ['BONBL','HIBIS','MEAD','PEACMN','RACQCL','SAVAN','WHILLS','ISLWST']
-    # 'ISLWST' missing from Weston's GIS data set
+    # Reporting location list
+    locations = [
+                    "'Pump Stations\BDD2\Level:value'",
+                    "'Pump Stations\BDD1\Level:value'",
+                    "'Pump Stations\ITDD1\Level:value'",
+                    "'Pump Stations\ITDD2\Level:value'",
+                    "'Pump Stations\ITDD3\Level:value'",
+                    "'Lake Levels\BONBL\Level:Value'",
+                    "'Lake Levels\HIBIS\Level:Value'",
+                    "'Lake Levels\ISLWST\Level:Value'",
+                    "'Lake Levels\MEAD\Level:Value'",
+                    "'Lake Levels\PEACMN\Level:Value'",
+                    "'Lake Levels\RACQCL\Level:Value'",
+                    "'Lake Levels\SAVAN\Level:Value'",
+                    "'Lake Levels\WHILLS\Level:Value'"
+                ]
 
     # Define empty dictionaries to return level info
     levels_dict = {}
-    lake_levels_dict = {}
     
     # Get station and lake levels
-    for station in pump_stations:
+    for location in locations:
+
+        # Encode the location
+        location_encoded = urllib.parse.urlencode(location)
 
         # Build query parameters
-        path = r'?query=SELECT%20Timestamp,%20%27Pump%20Stations' + '\\' + station + r'\Level:Value%27FROM%20History%20Order%20BY%20TIMESTAMP%20DESC%20LIMIT%201'
+        path = r'?query=SELECT%20Timestamp,' + location_encoded + r'FROM%20History%20Order%20BY%20TIMESTAMP%20DESC%20LIMIT%201'
 
         # Build full URL
         full_url = urljoin(base, path)
@@ -222,26 +233,6 @@ def get_values(user: str, pw: str, base: str) -> Dict:
         # Populate dictionary
         levels_dict[station] = [station_level, sample_datetime]
         
-    for level in lake_levels:
-
-        # Build query parameters
-        path = r'?query=SELECT%20Timestamp,%20%27Lake%20Levels' + '\\' + level + r'\Level:Value%27FROM%20History%20Order%20BY%20TIMESTAMP%20DESC%20LIMIT%201'
-
-        # Build full URL
-        full_url = urljoin(base, path)
-
-        # Make the request
-        r = req.get(full_url, auth = HTTPBasicAuth(user, pw))
-        data = r.json()
-        #lake = data['results']['fieldNames'][1].split('\\')[1]
-        lake_level = data['results']['values'][0][1]
-
-        # Get sample datetime
-        sample_datetime = data['results']['values'][0][0]
-        
-        # Populate dictionary
-        lake_levels_dict[level] = [sample_datetime, lake_level]
-
     return [levels_dict]
 
 # Update the GIS related tables
@@ -252,7 +243,7 @@ def update_gis(data: Dict):
 
     # Update Lake Levels gauge table
     lake_level_table = 'LGIM_PROD.DBO.swLakeLevelsGauge'
-    lake_level_fields = ['NAME','Current_Pool','Full_Pool','Pct_Full','Sample_Date']
+    lake_level_fields = ['NAME','LAKELEVEL'] # Add sample data field to list when added to fc,'Sample_Date'
 
     try:
 
@@ -264,22 +255,22 @@ def update_gis(data: Dict):
             for level in levelCursor:
 
                 # Iterate VTScada readings result dictionary
-                for node, reading in data.items():
+                for node, readings in data.items():
 
-                    # Set pool level from VTScada REST dictionary
-                    pool_level = reading[1]
-
-                    # Check PARENTID (level[0] from Weston's SDE table) against VTScada's dictionary
+                     # Check PARENTID (level[0] from Weston's SDE table) against VTScada's dictionary
                     if level[0] == node:
+
+                        # Set pool level from VTScada REST dictionary
+                        pool_level = readings[0]
 
                         # Set Current_Pool attribute
                         level[1] = round(pool_level,2)
 
                         # Calculate percent full
-                        level[3] = round((pool_level / level[2]) * 100,2)
+                        #level[3] = round((pool_level / level[2]) * 100,2)
 
                         # Get sample dat
-                        level[4] = datetime.fromtimestamp(int(reading[0])).strftime('%m-%d-%Y %H:%M:%S')
+                        #level[4] = datetime.fromtimestamp(int(reading[0])).strftime('%m-%d-%Y %H:%M:%S')
                             
                         # Update Weston's SDE table
                         print(fr"Updating {level}...")
